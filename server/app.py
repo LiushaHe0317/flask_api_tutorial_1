@@ -1,87 +1,145 @@
 import flask
+import bcrypt
 import flask_restful as rest
+from pymongo import MongoClient
 
 app = flask.Flask(__name__)
 api = rest.Api(app)
 
+# connect to mongodb and create database and corresponding collections
+client = MongoClient("mongodb://db:27017")
 
-def check_parameters(postedData, funcName='add'):
-    if not postedData['x'] or not postedData['y']:
-        return 301
-    elif funcName == 'div' and postedData['y'] == 0:
-        return 302
-    return 200
+db = client.SentencesDatabase
 
-class Add(rest.Resource):
+users = db['Users']
+
+def user_match(username, password, method):
+    user = users.find({'Username': username})
+
+    if method == 'register':
+        if user.count() > 0:
+            return 303
+        else:
+            return 200
+    else:
+        if user.count() > 0:
+            if user[0]['Password'] == bcrypt.hashpw(password.encode('utf-8'), user[0]['Password']):
+                return 200
+            else:
+                return 301
+        else:
+            return 302
+
+
+def countToken(username):
+    user = users.find({'Username': username})
+    return user[0]['No of Token']
+
+
+class Register(rest.Resource):
     def post(self):
-        postedData = flask.request.get_json()
-
-        status_code = check_parameters(postedData, 'add')
+        data = flask.request.get_json()
+        username = data['Username']
+        password = data['Password']
+        status_code = user_match(username, password, 'register')
 
         if status_code == 200:
-            x = postedData['x']
-            y = postedData['y']
+            users.insert({
+                'Username': username,
+                'Password': bcrypt.hashpw(password, bcrypt.gensalt()),
+                'Sentence': '',
+                'No of Token': 6
+            })
 
-            return flask.jsonify({'eessage': x+y})
+            return flask.jsonify({
+                'status code': 200,
+                'message': 'You have registered successfully.'
+            })
         elif status_code == 301:
-            return flask.jsonify({'message': 'parameter x or y cannot be empty'})
+            return flask.jsonify({
+                'status code': 301,
+                'message': 'Username and password do not match.'
+            })
+        elif status_code == 303:
+            return flask.jsonify({
+                'status code': status_code,
+                'message': 'Username already exists.'
+            })
 
 
-class Substract(rest.Resource):
+class Save(rest.Resource):
     def post(self):
-        postedData = flask.request.get_json()
-
-        status_code = check_parameters(postedData, 'sub')
+        data = flask.request.get_json()
+        username = data['Username']
+        password = data['Password']
+        sentence = data['Sentence']
+        status_code = user_match(username, password, 'save')
+        num_token = countToken(username)
 
         if status_code == 200:
-            x = postedData['x']
-            y = postedData['y']
-
-            return flask.jsonify({'eessage': x-y})
+            if num_token <= 0:
+                return flask.jsonify({
+                    'status_code': 201,
+                    'message': 'You have no tokens.'
+                })
+            else:
+                users.update({
+                    'Username': username
+                }, {'$set': {
+                    'Sentence': sentence,
+                    'No of Token': num_token - 1
+                }})
+                return flask.jsonify({
+                    'status_code': status_code,
+                    'message': 'Sentence saved successfully.'
+                })
         elif status_code == 301:
-            return flask.jsonify({'message': 'parameter x or y cannot be empty'})
-
-
-class Multiply(rest.Resource):
-    def post(self):
-        postedData = flask.request.get_json()
-
-        status_code = check_parameters(postedData, 'mul')
-
-        if status_code == 200:
-            x = postedData['x']
-            y = postedData['y']
-
-            return flask.jsonify({'eessage': x*y})
-        elif status_code == 301:
-            return flask.jsonify({'message': 'parameter x or y cannot be empty'})
-
-
-class Divide(rest.Resource):
-    def post(self):
-        postedData = flask.request.get_json()
-
-        status_code = check_parameters(postedData, 'div')
-
-        if status_code == 200:
-            x = postedData['x']
-            y = postedData['y']
-
-            return flask.jsonify({'eessage': x/y})
-        elif status_code == 301:
-            return flask.jsonify({'message': 'parameter x or y cannot be empty'})
+            return flask.jsonify({
+                'status code': status_code,
+                'message': 'Username and password do not match.'
+            })
         elif status_code == 302:
-            return flask.jsonify({'message': 'y cannot be 0 in division'})
+            return flask.jsonify({
+                'status_code': status_code,
+                'massage': 'User does not exist.'
+            })
 
 
-api.add_resource(Add, '/add')
-api.add_resource(Substract, '/substract')
-api.add_resource(Multiply, '/multiply')
-api.add_resource(Divide, '/divide')
+class Retrieve(rest.Resource):
+    def post(self):
+        data = flask.request.get_json()
+        username = data['Username']
+        password = data['Password']
+
+        status_code = user_match(username, password, 'retrieve')
+
+        if status_code == 200:
+            user = users.find({'Username': username})
+            return flask.jsonify({
+                'status code': status_code,
+                'Sentence': user[0]['Sentence'],
+                'No of Token': user[0]['No of Token']
+            })
+        elif status_code == 301:
+            return flask.jsonify({
+                'status code': status_code,
+                'message': 'Username and password do not match.'
+            })
+        elif status_code == 302:
+            return flask.jsonify({
+                'status_code': status_code,
+                'massage': 'User does not exist.'
+            })
+
 
 @app.route('/')
 def index():
-    return 'Welcome to Third API Test Environment.'
+    return 'Welcome to API Test Environment.'
+
+api.add_resource(Register, '/register')
+api.add_resource(Save, '/save')
+api.add_resource(Retrieve, '/retrieve')
+
 
 if __name__=='__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', debug=True)

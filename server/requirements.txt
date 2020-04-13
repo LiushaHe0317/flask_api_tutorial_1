@@ -1,6 +1,4 @@
 flask
-psycopg2-binary
-Flask-SQLAlchemy
-Flask-Migrate
 Flask-Restful
-Flask-JWT
+pymongo
+bcrypt
